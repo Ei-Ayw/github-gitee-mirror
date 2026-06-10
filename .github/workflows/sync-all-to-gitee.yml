@@ -123,24 +123,18 @@ jobs:
               continue
             fi
 
-            # Clone + Push
+            # Clone + Push (不用 --mirror 避免 PR refs 被拒)
             GITEE_URL="https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_USERNAME}/${REPO_NAME}.git"
             TMP_DIR=$(mktemp -d)
 
-            if git clone --mirror "${AUTH_URL}" "$TMP_DIR/repo.git" 2>&1; then
+            if git clone --bare "${AUTH_URL}" "$TMP_DIR/repo.git" 2>&1; then
               cd "$TMP_DIR/repo.git"
-              if git push --mirror "${GITEE_URL}" 2>&1; then
-                echo "  ✅ ${REPO_NAME} 镜像推送成功"
+              if git push --all "${GITEE_URL}" 2>&1 && git push --tags "${GITEE_URL}" 2>&1; then
+                echo "  ✅ ${REPO_NAME} 推送成功"
                 SUCCESS=$((SUCCESS + 1))
               else
-                echo "  ⚠️ 回退到 --all + --tags..."
-                if git push --all "${GITEE_URL}" 2>&1 && git push --tags "${GITEE_URL}" 2>&1; then
-                  echo "  ✅ ${REPO_NAME} 回退推送成功"
-                  SUCCESS=$((SUCCESS + 1))
-                else
-                  echo "  ❌ ${REPO_NAME} 推送失败"
-                  FAIL=$((FAIL + 1))
-                fi
+                echo "  ❌ ${REPO_NAME} 推送失败"
+                FAIL=$((FAIL + 1))
               fi
               cd "$GITHUB_WORKSPACE"
             else

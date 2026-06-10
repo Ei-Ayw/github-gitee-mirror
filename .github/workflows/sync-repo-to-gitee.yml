@@ -106,11 +106,10 @@ jobs:
           git remote add gitee "$GITEE_URL"
 
           echo "⬆️ 推送到 Gitee..."
-          if git push --mirror gitee 2>&1; then
-            echo "✅ 镜像推送成功"
+          git push --all gitee 2>&1 && git push --tags gitee 2>&1
+          if [ $? -eq 0 ]; then
+            echo "✅ 推送成功"
           else
-            echo "⚠️ 回退到 --all + --tags..."
-            git push --all gitee
-            git push --tags gitee
-            echo "✅ 回退推送成功"
+            echo "❌ 推送失败"
+            exit 1
           fi
