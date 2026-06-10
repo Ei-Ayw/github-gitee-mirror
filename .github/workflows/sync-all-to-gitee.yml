@@ -100,14 +100,16 @@ jobs:
 
             if [ "$HTTP_CODE" = "404" ]; then
               echo "  📦 创建 Gitee 仓库..."
-              CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST \
-                "https://gitee.com/api/v5/user/repos?access_token=${GITEE_TOKEN}" \
+              HTTP_HEADER_FILE=$(mktemp)
+              CREATE_BODY=$(curl -s -o - -D "$HTTP_HEADER_FILE" -X POST \
+                "https://gitee.com/api/v5/user/repos" \
+                -F "access_token=${GITEE_TOKEN}" \
                 -F "name=${REPO_NAME}" \
                 -F "private=true" \
-                -F "auto_init=false" \
-                -F "description=Mirrored from GitHub")
-              CREATE_CODE=$(echo "$CREATE_RESP" | tail -1)
-              CREATE_BODY=$(echo "$CREATE_RESP" | sed '$d')
+                -F "auto_init=false")
+              CREATE_CODE=$(grep -i "^HTTP/" "$HTTP_HEADER_FILE" | head -1 | awk '{print $2}')
+              rm -f "$HTTP_HEADER_FILE"
+              echo "  📡 HTTP Status: ${CREATE_CODE}"
               if [ "$CREATE_CODE" != "201" ]; then
                 echo "  ❌ 创建 Gitee 仓库失败 (HTTP ${CREATE_CODE}): ${CREATE_BODY}"
                 FAIL=$((FAIL + 1))
