@@ -80,6 +80,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
         run: |
+          set +e
           SUCCESS=0
           FAIL=0
 

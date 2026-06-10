@@ -61,6 +61,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
         run: |
+          set +e
           REPO_NAME="${{ steps.target.outputs.name }}"
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             "https://gitee.com/api/v5/repos/${GITEE_USERNAME}/${REPO_NAME}?access_token=${GITEE_TOKEN}")
@@ -99,6 +100,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
         run: |
+          set +e
           REPO_NAME="${{ steps.target.outputs.name }}"
           GITEE_URL="https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_USERNAME}/${REPO_NAME}.git"
 
