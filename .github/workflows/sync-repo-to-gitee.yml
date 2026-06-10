@@ -23,6 +23,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+      - name: Validate tokens
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+        run: |
+          echo "🔍 验证 Gitee Token..."
+          GITEE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://gitee.com/api/v5/user?access_token=${GITEE_TOKEN}")
+          if [ "$GITEE_CODE" != "200" ]; then
+            echo "❌ Gitee Token 无效 (HTTP ${GITEE_CODE})，请检查 GITEE_TOKEN secret"
+            exit 1
+          fi
+          echo "✅ Gitee Token 有效 (用户: ${GITEE_USERNAME})"
+
       - name: Determine target repo
         id: target
         env:
@@ -53,12 +67,29 @@ jobs:
 
           if [ "$HTTP_CODE" = "404" ]; then
             echo "📦 创建 Gitee 仓库..."
-            curl -s -X POST "https://gitee.com/api/v5/user/repos" \
+            CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/user/repos" \
               -H "Content-Type: application/json" \
               -d "{\"access_token\":\"${GITEE_TOKEN}\",\"name\":\"${REPO_NAME}\",\"private\":true,"\
                 "\"description\":\"Mirrored from ${{ github.event.repository.html_url }}\","\
-                "\"auto_init\":false}" > /dev/null 2>&1 || true
+                "\"auto_init\":false}")
+            CREATE_CODE=$(echo "$CREATE_RESP" | tail -1)
+            CREATE_BODY=$(echo "$CREATE_RESP" | sed '$d')
+            if [ "$CREATE_CODE" != "201" ]; then
+              echo "❌ 创建 Gitee 仓库失败 (HTTP ${CREATE_CODE}): ${CREATE_BODY}"
+              exit 1
+            fi
+            echo "✅ Gitee 仓库已创建"
             sleep 3
+            # 验证仓库确实存在
+            VERIFY_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              "https://gitee.com/api/v5/repos/${GITEE_USERNAME}/${REPO_NAME}?access_token=${GITEE_TOKEN}")
+            if [ "$VERIFY_CODE" != "200" ]; then
+              echo "❌ 仓库创建后验证失败 (HTTP ${VERIFY_CODE})"
+              exit 1
+            fi
+          elif [ "$HTTP_CODE" != "200" ]; then
+            echo "⚠️ 检查 Gitee 仓库状态异常 (HTTP ${HTTP_CODE})"
+            exit 1
           else
             echo "✅ Gitee 仓库已存在"
           fi

@@ -22,14 +22,50 @@ jobs:
       - name: Install jq
         run: sudo apt-get install -y jq
 
+      - name: Validate tokens
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+        run: |
+          echo "🔍 验证 GitHub PAT..."
+          GH_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${GH_PAT}" \
+            "https://api.github.com/user")
+          if [ "$GH_CODE" != "200" ]; then
+            echo "❌ GitHub PAT 无效 (HTTP ${GH_CODE})，请检查 GH_PAT secret 是否配置正确"
+            exit 1
+          fi
+          echo "✅ GitHub PAT 有效"
+
+          echo "🔍 验证 Gitee Token..."
+          GITEE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://gitee.com/api/v5/user?access_token=${GITEE_TOKEN}")
+          if [ "$GITEE_CODE" != "200" ]; then
+            echo "❌ Gitee Token 无效 (HTTP ${GITEE_CODE})，请检查 GITEE_TOKEN secret 是否配置正确"
+            exit 1
+          fi
+          echo "✅ Gitee Token 有效 (用户: ${GITEE_USERNAME})"
+
       - name: Fetch all GitHub repos
         id: repos
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
-          REPOS=$(curl -s -H "Authorization: token ${GH_PAT}" \
-            "https://api.github.com/user/repos?per_page=100&visibility=all" \
-            | jq -r '.[] | "\(.clone_url) \(.name) \(.private)"')
+          # 分页获取所有仓库
+          PAGE=1
+          ALL_REPOS=""
+          while true; do
+            RESPONSE=$(curl -s -H "Authorization: token ${GH_PAT}" \
+              "https://api.github.com/user/repos?per_page=100&page=${PAGE}&visibility=all")
+            BATCH=$(echo "$RESPONSE" | jq -r '.[] | "\(.clone_url) \(.name) \(.private)"' 2>/dev/null)
+            if [ -z "$BATCH" ]; then
+              break
+            fi
+            ALL_REPOS="${ALL_REPOS}${BATCH}\n"
+            PAGE=$((PAGE + 1))
+          done
+
+          REPOS=$(echo -e "$ALL_REPOS" | sed '/^$/d')
 
           echo "📋 找到以下仓库："
           echo "$REPOS" | while read line; do echo "  $line"; done
@@ -63,11 +99,31 @@ jobs:
 
             if [ "$HTTP_CODE" = "404" ]; then
               echo "  📦 创建 Gitee 仓库..."
-              curl -s -X POST "https://gitee.com/api/v5/user/repos" \
+              CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/user/repos" \
                 -H "Content-Type: application/json" \
                 -d "{\"access_token\":\"${GITEE_TOKEN}\",\"name\":\"${REPO_NAME}\",\"private\":true,\"description\":\"Mirrored from ${CLONE_URL}\","\
-                "\"auto_init\":false}" > /dev/null 2>&1 || true
+                "\"auto_init\":false}")
+              CREATE_CODE=$(echo "$CREATE_RESP" | tail -1)
+              CREATE_BODY=$(echo "$CREATE_RESP" | sed '$d')
+              if [ "$CREATE_CODE" != "201" ]; then
+                echo "  ❌ 创建 Gitee 仓库失败 (HTTP ${CREATE_CODE}): ${CREATE_BODY}"
+                FAIL=$((FAIL + 1))
+                continue
+              fi
+              echo "  ✅ Gitee 仓库已创建"
               sleep 3
+              # 验证仓库确实存在
+              VERIFY_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                "https://gitee.com/api/v5/repos/${GITEE_USERNAME}/${REPO_NAME}?access_token=${GITEE_TOKEN}")
+              if [ "$VERIFY_CODE" != "200" ]; then
+                echo "  ❌ 仓库创建后验证失败 (HTTP ${VERIFY_CODE})，跳过推送"
+                FAIL=$((FAIL + 1))
+                continue
+              fi
+            elif [ "$HTTP_CODE" != "200" ]; then
+              echo "  ⚠️ 检查 Gitee 仓库状态异常 (HTTP ${HTTP_CODE})，跳过"
+              FAIL=$((FAIL + 1))
+              continue
             fi
 
             # Clone + Push
