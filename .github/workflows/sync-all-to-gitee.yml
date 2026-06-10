@@ -100,31 +100,23 @@ jobs:
 
             if [ "$HTTP_CODE" = "404" ]; then
               echo "  📦 创建 Gitee 仓库..."
-              HTTP_HEADER_FILE=$(mktemp)
-              CREATE_BODY=$(curl -s -o - -D "$HTTP_HEADER_FILE" -X POST \
+              CREATE_BODY=$(curl -s -X POST \
                 "https://gitee.com/api/v5/user/repos" \
                 -F "access_token=${GITEE_TOKEN}" \
                 -F "name=${REPO_NAME}" \
                 -F "private=true" \
                 -F "auto_init=false")
-              CREATE_CODE=$(grep -i "^HTTP/" "$HTTP_HEADER_FILE" | head -1 | awk '{print $2}')
-              rm -f "$HTTP_HEADER_FILE"
-              echo "  📡 HTTP Status: ${CREATE_CODE}"
-              if [ "$CREATE_CODE" != "201" ]; then
-                echo "  ❌ 创建 Gitee 仓库失败 (HTTP ${CREATE_CODE}): ${CREATE_BODY}"
+              # 检查是否创建成功（201）或已存在（422）
+              if echo "$CREATE_BODY" | grep -q '"id"'; then
+                echo "  ✅ Gitee 仓库已创建"
+              elif echo "$CREATE_BODY" | grep -q '已存在'; then
+                echo "  ⚠️ Gitee 仓库已存在（忽略大小写），继续同步"
+              else
+                echo "  ❌ 创建 Gitee 仓库失败: ${CREATE_BODY}"
                 FAIL=$((FAIL + 1))
                 continue
               fi
-              echo "  ✅ Gitee 仓库已创建"
-              sleep 3
-              # 验证仓库确实存在
-              VERIFY_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-                "https://gitee.com/api/v5/repos/${GITEE_USERNAME}/${REPO_NAME}?access_token=${GITEE_TOKEN}")
-              if [ "$VERIFY_CODE" != "200" ]; then
-                echo "  ❌ 仓库创建后验证失败 (HTTP ${VERIFY_CODE})，跳过推送"
-                FAIL=$((FAIL + 1))
-                continue
-              fi
+              sleep 5
             elif [ "$HTTP_CODE" != "200" ]; then
               echo "  ⚠️ 检查 Gitee 仓库状态异常 (HTTP ${HTTP_CODE})，跳过"
               FAIL=$((FAIL + 1))
