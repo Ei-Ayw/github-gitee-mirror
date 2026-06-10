@@ -7,6 +7,7 @@ class SyncLogResponse(BaseModel):
     github_repo_url: str
     gitee_repo_url: str
     status: str
+    trigger_source: str  # "manual", "webhook", "cron", "github_actions"
     error_message: Optional[str]
     created_at: datetime
     updated_at: Optional[datetime]

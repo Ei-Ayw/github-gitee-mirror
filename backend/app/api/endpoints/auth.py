@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.models.user import User
 from app.schemas.user import TokenLinkRequest, UserResponse, PlatformStatus
 import requests
+import secrets
 
 router = APIRouter()
 
@@ -65,7 +66,7 @@ def get_link_status(user_id: int, db: Session = Depends(get_db)):
 @router.get("/oauth/github/login")
 def github_login(user_id: int):
     client_id = settings.GITHUB_CLIENT_ID
-    redirect_uri = f"http://localhost:8000/api/v1/auth/oauth/github/callback?user_id={user_id}"
+    redirect_uri = f"{settings.API_BASE_URL}/api/v1/auth/oauth/github/callback?user_id={user_id}"
     return RedirectResponse(f"https://github.com/login/oauth/authorize?client_id={client_id}&redirect_uri={redirect_uri}&scope=repo")
 
 @router.get("/oauth/github/callback")
@@ -102,7 +103,7 @@ def github_callback(code: str, user_id: int, db: Session = Depends(get_db)):
 @router.get("/oauth/gitee/login")
 def gitee_login(user_id: int):
     client_id = settings.GITEE_CLIENT_ID
-    redirect_uri = f"http://localhost:8000/api/v1/auth/oauth/gitee/callback?user_id={user_id}"
+    redirect_uri = f"{settings.API_BASE_URL}/api/v1/auth/oauth/gitee/callback?user_id={user_id}"
     return RedirectResponse(f"https://gitee.com/oauth/authorize?client_id={client_id}&redirect_uri={redirect_uri}&response_type=code&scope=user_info%20projects")
 
 @router.get("/oauth/gitee/callback")
@@ -113,7 +114,7 @@ def gitee_callback(code: str, user_id: int, db: Session = Depends(get_db)):
         "code": code,
         "client_id": settings.GITEE_CLIENT_ID,
         "client_secret": settings.GITEE_CLIENT_SECRET,
-        "redirect_uri": f"http://localhost:8000/api/v1/auth/oauth/gitee/callback?user_id={user_id}"
+        "redirect_uri": f"{settings.API_BASE_URL}/api/v1/auth/oauth/gitee/callback?user_id={user_id}"
     }
     res = requests.post(token_url, data=payload)
     token_data = res.json()
@@ -135,3 +136,19 @@ def gitee_callback(code: str, user_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     return RedirectResponse(f"{settings.FRONTEND_URL}/settings")
+
+
+@router.post("/generate-sync-token/{user_id}")
+def generate_sync_token(user_id: int, db: Session = Depends(get_db)):
+    """为 CI/CD 生成认证 token，用于 GitHub Actions 调用同步 API"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.github_access_token or not user.gitee_access_token:
+        raise HTTPException(status_code=400, detail="Both accounts must be linked before generating sync token")
+
+    token = secrets.token_urlsafe(32)
+    user.sync_api_token = token
+    db.commit()
+
+    return {"sync_api_token": token, "user_id": user_id}

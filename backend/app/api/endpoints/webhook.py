@@ -46,6 +46,7 @@ async def github_webhook(user_id: int, request: Request, background_tasks: Backg
         user_id=user.id,
         github_repo_url=github_repo_url,
         gitee_repo_url=f"https://gitee.com/{user.gitee_username}/{repo_name}.git",
+        trigger_source="webhook",
         status="pending"
     )
     db.add(task_record)

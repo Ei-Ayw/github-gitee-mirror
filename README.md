@@ -39,6 +39,7 @@
 - ⚡ **高性能异步处理**: 基于 Celery + Redis，处理大规模仓库搬家时不会阻塞页面。
 - ⏰ **定时自动同步 (Cron Jobs)**: 通过 Celery Beat 配置每日自动同步全部仓库，无需人工干预。
 - 🪝 **Webhook 触发同步**: 配置 GitHub Webhook 后，每次 `push` 事件自动触发对应仓库的同步。
+- 🔁 **GitHub Actions CI/CD 同步**: 通过 GitHub Actions 定时或 push 触发自动同步，支持单仓库和批量同步模式。
 
 ---
 
@@ -99,6 +100,28 @@ npm run dev
 
 ---
 
+## 🔄 GitHub Actions CI/CD 同步 / CI/CD Sync
+
+SyncPulse 支持通过 GitHub Actions 自动化同步仓库到 Gitee。项目提供了现成的 workflow 模板文件 `.github/workflows/sync-to-gitee.yml`。
+
+### 配置步骤 / Setup Steps
+
+1. 在 SyncPulse 设置页面绑定 GitHub 和 Gitee 账号
+2. 点击 **Generate Sync Token** 生成 CI/CD 认证 token
+3. 复制 Sync Token、API URL 和 User ID
+4. 在你的 GitHub 仓库 **Settings → Secrets and variables → Actions** 中添加：
+   - `SYNCPULSE_API_TOKEN` — SyncPulse 生成的同步 token
+   - `SYNCPULSE_API_URL` — SyncPulse 服务地址（如 `https://your-server.com`）
+   - `SYNCPULSE_USER_ID` — SyncPulse 用户 ID
+
+5. 将 `.github/workflows/sync-to-gitee.yml` 添加到你的仓库
+6. workflow 支持三种触发方式：
+   - **Push 触发**: 任何分支的 push 事件自动触发同步
+   - **定时触发**: 每天凌晨 2:00 UTC 自动同步
+   - **手动触发**: 在 GitHub Actions 页面点击 Run workflow
+
+---
+
 ## 🗺️ 路线图 / Roadmap
 
 - [x] 支持同步全量 Repositories (一键搬家)
@@ -106,6 +129,7 @@ npm run dev
 - [x] Webhook 触发同步
 - [x] 智能推送回退 (`--mirror` → `--all`)
 - [x] 同步历史日志 (Sync History)
+- [x] GitHub Actions CI/CD 同步
 - [ ] Webhook 签名验证 (Signature Verification)
 - [ ] 飞书/钉钉 同步成功通知
 - [ ] 支持更多的 Git 平台 (GitLab, Bitbucket)

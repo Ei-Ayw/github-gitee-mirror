@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuthStore } from '../../store/authStore';
-import { Github, CheckCircle2, ShieldCheck, Link2, Copy, Webhook } from 'lucide-react';
+import { Github, CheckCircle2, ShieldCheck, Link2, Copy, Webhook, Rocket, RefreshCw } from 'lucide-react';
 import { motion, type Variants } from 'framer-motion';
 import { cn } from '../../lib/utils';
 
@@ -14,14 +14,37 @@ const GiteeIcon = ({ className }: { className?: string }) => (
 );
 
 export default function Accounts() {
-    const { userId, githubLinked, giteeLinked, githubUser, giteeUser, setLinked } = useAuthStore();
+    const { userId, githubLinked, giteeLinked, githubUser, giteeUser, setLinked, syncApiToken, setSyncApiToken } = useAuthStore();
     const [loading, setLoading] = useState(false);
-    const [copied, setCopied] = useState(false);
+    const [copied, setCopied] = useState<string | null>(null);
 
     const handleCopyWebhook = () => {
         navigator.clipboard.writeText(`http://localhost:8001/api/v1/webhook/github/${userId}`);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        setCopied('webhook');
+        setTimeout(() => setCopied(null), 2000);
+    };
+
+    const handleCopyCiToken = () => {
+        if (syncApiToken) {
+            navigator.clipboard.writeText(syncApiToken);
+            setCopied('ci_token');
+            setTimeout(() => setCopied(null), 2000);
+        }
+    };
+
+    const handleCopyCiUrl = () => {
+        navigator.clipboard.writeText(`http://localhost:8001/api/v1/ci/trigger/${userId}`);
+        setCopied('ci_url');
+        setTimeout(() => setCopied(null), 2000);
+    };
+
+    const handleGenerateToken = async () => {
+        try {
+            const res = await axios.post(`http://localhost:8001/api/v1/auth/generate-sync-token/${userId}`);
+            setSyncApiToken(res.data.sync_api_token);
+        } catch (e) {
+            console.error(e);
+        }
     };
 
     useEffect(() => {
@@ -215,47 +238,132 @@ export default function Accounts() {
             </div>
 
             {githubLinked && giteeLinked && (
-                <motion.div
-                    custom={3}
-                    initial="hidden"
-                    animate="visible"
-                    variants={variants}
-                    className="mt-8 bg-[#0f0f12]/80 backdrop-blur-xl border border-white/5 rounded-[2.5rem] p-10 relative overflow-hidden group"
-                >
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 blur-[100px] -translate-y-1/2 translate-x-1/2 rounded-full pointer-events-none" />
+                <>
+                    {/* Webhook Integration */}
+                    <motion.div
+                        custom={3}
+                        initial="hidden"
+                        animate="visible"
+                        variants={variants}
+                        className="mt-8 bg-[#0f0f12]/80 backdrop-blur-xl border border-white/5 rounded-[2.5rem] p-10 relative overflow-hidden group"
+                    >
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 blur-[100px] -translate-y-1/2 translate-x-1/2 rounded-full pointer-events-none" />
 
-                    <div className="flex flex-col md:flex-row gap-8 items-start relative z-10">
-                        <div className="p-5 bg-white/5 rounded-3xl border border-white/10 shadow-inner">
-                            <Webhook className="w-8 h-8 text-emerald-400" />
-                        </div>
+                        <div className="flex flex-col md:flex-row gap-8 items-start relative z-10">
+                            <div className="p-5 bg-white/5 rounded-3xl border border-white/10 shadow-inner">
+                                <Webhook className="w-8 h-8 text-emerald-400" />
+                            </div>
 
-                        <div className="flex-1 w-full overflow-hidden">
-                            <h3 className="text-2xl font-bold text-white mb-2 tracking-tight">Webhook Integration</h3>
-                            <p className="text-sm text-white/60 leading-relaxed mb-6">
-                                Automate your sync process by adding this webhook URL to your GitHub repositories. It triggers an instant sync to Gitee whenever code is pushed.
-                            </p>
+                            <div className="flex-1 w-full overflow-hidden">
+                                <h3 className="text-2xl font-bold text-white mb-2 tracking-tight">Webhook Integration</h3>
+                                <p className="text-sm text-white/60 leading-relaxed mb-6">
+                                    Automate your sync process by adding this webhook URL to your GitHub repositories. It triggers an instant sync to Gitee whenever code is pushed.
+                                </p>
 
-                            <div className="flex items-center gap-3 bg-[#0a0a0c] border border-white/5 p-2 pl-4 rounded-2xl w-full">
-                                <div className="flex-1 overflow-x-auto scrollbar-hide">
-                                    <code className="text-xs text-blue-300 font-mono whitespace-nowrap">
-                                        http://localhost:8001/api/v1/webhook/github/{userId}
-                                    </code>
+                                <div className="flex items-center gap-3 bg-[#0a0a0c] border border-white/5 p-2 pl-4 rounded-2xl w-full">
+                                    <div className="flex-1 overflow-x-auto scrollbar-hide">
+                                        <code className="text-xs text-blue-300 font-mono whitespace-nowrap">
+                                            http://localhost:8001/api/v1/webhook/github/{userId}
+                                        </code>
+                                    </div>
+                                    <button
+                                        onClick={handleCopyWebhook}
+                                        className="px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-colors flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest shrink-0"
+                                    >
+                                        {copied === 'webhook' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                                        {copied === 'webhook' ? 'Copied' : 'Copy'}
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={handleCopyWebhook}
-                                    className="px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-colors flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest shrink-0"
-                                >
-                                    {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                                    {copied ? 'Copied' : 'Copy'}
-                                </button>
                             </div>
                         </div>
-                    </div>
-                </motion.div>
+                    </motion.div>
+
+                    {/* CI/CD Integration */}
+                    <motion.div
+                        custom={4}
+                        initial="hidden"
+                        animate="visible"
+                        variants={variants}
+                        className="mt-8 bg-[#0f0f12]/80 backdrop-blur-xl border border-white/5 rounded-[2.5rem] p-10 relative overflow-hidden group"
+                    >
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-violet-500/5 blur-[100px] -translate-y-1/2 translate-x-1/2 rounded-full pointer-events-none" />
+
+                        <div className="flex flex-col md:flex-row gap-8 items-start relative z-10">
+                            <div className="p-5 bg-white/5 rounded-3xl border border-white/10 shadow-inner">
+                                <Rocket className="w-8 h-8 text-violet-400" />
+                            </div>
+
+                            <div className="flex-1 w-full overflow-hidden">
+                                <h3 className="text-2xl font-bold text-white mb-2 tracking-tight">CI/CD Integration</h3>
+                                <p className="text-sm text-white/60 leading-relaxed mb-6">
+                                    Configure GitHub Actions to automatically sync your repositories. Add this workflow to your GitHub repos for push-triggered and scheduled synchronization to Gitee.
+                                </p>
+
+                                {/* Generate Token */}
+                                <div className="mb-4">
+                                    {!syncApiToken ? (
+                                        <motion.button
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            onClick={handleGenerateToken}
+                                            className="px-6 py-3 bg-violet-600 text-white font-black text-xs rounded-2xl shadow-[0_0_30px_rgba(139,92,246,0.2)] hover:shadow-[0_0_40px_rgba(139,92,246,0.3)] transition-all flex items-center gap-3 uppercase tracking-widest"
+                                        >
+                                            <RefreshCw className="w-4 h-4" />
+                                            Generate Sync Token
+                                        </motion.button>
+                                    ) : (
+                                        <div className="flex items-center gap-3 bg-[#0a0a0c] border border-white/5 p-2 pl-4 rounded-2xl w-full">
+                                            <div className="flex-1 overflow-x-auto scrollbar-hide">
+                                                <code className="text-xs text-violet-300 font-mono whitespace-nowrap">
+                                                    {syncApiToken}
+                                                </code>
+                                            </div>
+                                            <button
+                                                onClick={handleCopyCiToken}
+                                                className="px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-colors flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest shrink-0"
+                                            >
+                                                {copied === 'ci_token' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                                                {copied === 'ci_token' ? 'Copied' : 'Copy'}
+                                            </button>
+                                            <motion.button
+                                                whileHover={{ scale: 1.05 }}
+                                                whileTap={{ scale: 0.95 }}
+                                                onClick={handleGenerateToken}
+                                                className="px-3 py-3 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl transition-colors text-[10px] uppercase tracking-widest shrink-0"
+                                            >
+                                                <RefreshCw className="w-3 h-3" />
+                                            </motion.button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* CI/CD Trigger URL */}
+                                <div className="flex items-center gap-3 bg-[#0a0a0c] border border-white/5 p-2 pl-4 rounded-2xl w-full">
+                                    <div className="flex-1 overflow-x-auto scrollbar-hide">
+                                        <code className="text-xs text-blue-300 font-mono whitespace-nowrap">
+                                            http://localhost:8001/api/v1/ci/trigger/{userId}
+                                        </code>
+                                    </div>
+                                    <button
+                                        onClick={handleCopyCiUrl}
+                                        className="px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-colors flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest shrink-0"
+                                    >
+                                        {copied === 'ci_url' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                                        {copied === 'ci_url' ? 'Copied' : 'Copy'}
+                                    </button>
+                                </div>
+
+                                <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest mt-4">
+                                    Add the Sync Token as SYNCPULSE_API_TOKEN, the URL as SYNCPULSE_API_URL, and your User ID as SYNCPULSE_USER_ID in your GitHub repository Secrets.
+                                </p>
+                            </div>
+                        </div>
+                    </motion.div>
+                </>
             )}
 
             <motion.div
-                custom={4}
+                custom={5}
                 initial="hidden"
                 animate="visible"
                 variants={variants}

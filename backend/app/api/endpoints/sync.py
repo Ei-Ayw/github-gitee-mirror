@@ -108,6 +108,7 @@ def trigger_sync(req: SyncRequest, db: Session = Depends(get_db)):
         user_id=user.id,
         github_repo_url=req.github_repo_url,
         gitee_repo_url=f"https://gitee.com/{user.gitee_username}/{repo_name}.git",
+        trigger_source="manual",
         status="pending"
     )
     db.add(task_record)
@@ -174,6 +175,7 @@ def trigger_sync_all(req: BulkSyncRequest, db: Session = Depends(get_db)):
             user_id=user.id,
             github_repo_url=github_repo_url,
             gitee_repo_url=f"https://gitee.com/{user.gitee_username}/{repo_name}.git",
+            trigger_source="manual",
             status="pending"
         )
         db.add(task_record)

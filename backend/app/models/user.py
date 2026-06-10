@@ -13,7 +13,10 @@ class User(Base):
     gitee_id = Column(String(255), unique=True, index=True, nullable=True)
     gitee_username = Column(String(255), nullable=True)
     gitee_access_token = Column(String(255), nullable=True)
-    
+
+    # CI/CD API token for GitHub Actions authentication
+    sync_api_token = Column(String(255), unique=True, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -26,7 +29,11 @@ class RepositorySyncTask(Base):
     gitee_repo_url = Column(String(255), nullable=False)
     
     # pending, syncing, completed, failed
-    status = Column(String(50), default="pending") 
+    status = Column(String(50), default="pending")
+
+    # Trigger source: "manual", "webhook", "cron", "github_actions"
+    trigger_source = Column(String(50), default="manual")
+
     error_message = Column(String(1024), nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())

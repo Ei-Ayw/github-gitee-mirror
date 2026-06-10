@@ -12,6 +12,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8001"
     ]
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5174")
+    API_BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8001")
 
     # OAuth Application credentials
     GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")

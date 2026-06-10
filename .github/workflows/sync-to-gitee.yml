@@ -1,0 +1,76 @@
+# GitHub → Gitee 自动同步
+# 无需部署任何服务，直接在 GitHub Actions 中完成镜像同步
+#
+# 使用方法：
+#   1. 将此文件复制到你需要同步的 GitHub 仓库的 .github/workflows/ 目录
+#   2. 在仓库 Settings → Secrets and variables → Actions 中添加：
+#      - GITEE_TOKEN   : Gitee 个人访问令牌（https://gitee.com/profile/personal_access_tokens）
+#      - GITEE_USERNAME : 你的 Gitee 用户名
+#   3. push 代码后自动触发同步，也可手动触发（workflow_dispatch）
+
+name: Sync to Gitee
+
+on:
+  push:
+    branches: ["*"]
+  schedule:
+    - cron: "3 2 * * *"   # 每天凌晨 02:03 UTC 自动同步
+  workflow_dispatch:        # 支持手动触发
+
+env:
+  GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+  GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+
+      # 1. 全量检出仓库（含所有分支和标签）
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. 确保目标 Gitee 仓库存在，不存在则自动创建
+      - name: Ensure Gitee repo exists
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          # 检查仓库是否存在
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://gitee.com/api/v5/repos/${GITEE_USERNAME}/${REPO_NAME}?access_token=${GITEE_TOKEN}")
+
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "📦 Gitee 仓库不存在，正在创建..."
+            curl -s -X POST "https://gitee.com/api/v5/user/repos" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"access_token\": \"${GITEE_TOKEN}\",
+                \"name\": \"${REPO_NAME}\",
+                \"private\": true,
+                \"description\": \"Mirrored from ${{ github.event.repository.html_url }}\",
+                \"auto_init\": false
+              }" || true
+            echo "✅ 仓库创建完成"
+          else
+            echo "✅ Gitee 仓库已存在"
+          fi
+
+      # 3. 推送到 Gitee（先尝试 mirror，失败则回退到 all + tags）
+      - name: Push to Gitee
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          GITEE_URL="https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_USERNAME}/${REPO_NAME}.git"
+
+          git remote add gitee "$GITEE_URL"
+
+          # 先尝试完整镜像推送
+          echo "⬆️ 正在推送 (--mirror)..."
+          if git push --mirror gitee 2>&1; then
+            echo "✅ 镜像推送成功"
+          else
+            echo "⚠️ 镜像推送失败，回退到 --all + --tags..."
+            git push --all gitee
+            git push --tags gitee
+            echo "✅ 回退推送成功"
+          fi

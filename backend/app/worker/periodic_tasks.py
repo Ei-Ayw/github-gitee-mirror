@@ -46,6 +46,7 @@ def auto_sync_all_users():
                                 user_id=user.id,
                                 github_repo_url=github_repo_url,
                                 gitee_repo_url=f"https://gitee.com/{user.gitee_username}/{repo_name}.git",
+                                trigger_source="cron",
                                 status="pending"
                             )
                             db.add(task_record)

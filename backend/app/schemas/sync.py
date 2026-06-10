@@ -19,6 +19,7 @@ class SyncResponse(BaseModel):
     task_id: int
     status: str
     message: str
+    trigger_source: str = "manual"
 
 class BulkSyncRequest(BaseModel):
     user_id: int

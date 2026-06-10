@@ -20,6 +20,7 @@ interface SyncLog {
     github_repo_url: string;
     gitee_repo_url: string;
     status: 'completed' | 'failed' | 'syncing' | 'pending';
+    trigger_source: string;
     error_message: string | null;
     created_at: string;
 }
@@ -54,6 +55,16 @@ export default function SyncLogs() {
             case 'failed': return { icon: <XCircle className="w-5 h-5 text-rose-400" />, color: "text-rose-400", bg: "bg-rose-500/10", border: "border-rose-500/20" };
             case 'syncing': return { icon: <RefreshCw className="w-5 h-5 text-blue-400 animate-spin" />, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20" };
             default: return { icon: <Clock className="w-5 h-5 text-amber-400" />, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" };
+        }
+    };
+
+    const getTriggerSourceInfo = (source: string) => {
+        switch (source) {
+            case 'manual': return { label: "手动", color: "text-white/50", bg: "bg-white/5", border: "border-white/10" };
+            case 'webhook': return { label: "Webhook", color: "text-emerald-400/70", bg: "bg-emerald-500/5", border: "border-emerald-500/10" };
+            case 'cron': return { label: "定时", color: "text-amber-400/70", bg: "bg-amber-500/5", border: "border-amber-500/10" };
+            case 'github_actions': return { label: "CI/CD", color: "text-violet-400/70", bg: "bg-violet-500/5", border: "border-violet-500/10" };
+            default: return { label: source, color: "text-white/40", bg: "bg-white/5", border: "border-white/10" };
         }
     };
 
@@ -190,6 +201,16 @@ export default function SyncLogs() {
                                                 )}>
                                                     {log.status}
                                                 </span>
+                                                {log.trigger_source && (
+                                                    <span className={cn(
+                                                        "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest border",
+                                                        getTriggerSourceInfo(log.trigger_source).bg,
+                                                        getTriggerSourceInfo(log.trigger_source).color,
+                                                        getTriggerSourceInfo(log.trigger_source).border
+                                                    )}>
+                                                        {getTriggerSourceInfo(log.trigger_source).label}
+                                                    </span>
+                                                )}
                                                 <div className="flex items-center text-white/20 gap-2 text-[10px] font-bold uppercase tracking-widest">
                                                     <Calendar className="w-3 h-3" />
                                                     {formatDate(log.created_at)}
