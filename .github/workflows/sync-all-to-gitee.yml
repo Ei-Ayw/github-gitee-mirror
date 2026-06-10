@@ -22,11 +22,11 @@ jobs:
       - name: Install jq
         run: sudo apt-get install -y jq
 
-      - name: Validate tokens
+      - name: Validate tokens and resolve Gitee username
+        id: tokens
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
         run: |
           echo "🔍 验证 GitHub PAT..."
           GH_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${GH_PAT}" \
@@ -38,13 +38,13 @@ jobs:
           echo "✅ GitHub PAT 有效"
 
           echo "🔍 验证 Gitee Token..."
-          GITEE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://gitee.com/api/v5/user?access_token=${GITEE_TOKEN}")
-          if [ "$GITEE_CODE" != "200" ]; then
-            echo "❌ Gitee Token 无效 (HTTP ${GITEE_CODE})，请检查 GITEE_TOKEN secret 是否配置正确"
+          GITEE_USER=$(curl -s "https://gitee.com/api/v5/user?access_token=${GITEE_TOKEN}" | jq -r '.login')
+          if [ -z "$GITEE_USER" ] || [ "$GITEE_USER" = "null" ]; then
+            echo "❌ Gitee Token 无效，请检查 GITEE_TOKEN secret 是否配置正确"
             exit 1
           fi
-          echo "✅ Gitee Token 有效 (用户: ${GITEE_USERNAME})"
+          echo "✅ Gitee Token 有效 (真实用户名: ${GITEE_USER})"
+          echo "gitee_username=${GITEE_USER}" >> $GITHUB_OUTPUT
 
       - name: Fetch all GitHub repos
         id: repos
@@ -78,7 +78,7 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+          GITEE_USERNAME: ${{ steps.tokens.outputs.gitee_username }}
         run: |
           set +e
           SUCCESS=0

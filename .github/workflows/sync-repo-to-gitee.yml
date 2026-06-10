@@ -5,7 +5,7 @@
 # 配置 Secrets（在仓库 Settings → Secrets → Actions 中）：
 #   - GH_PAT        : GitHub PAT（https://github.com/settings/tokens，勾选 repo）—— 私有仓库 clone 需要
 #   - GITEE_TOKEN    : Gitee PAT（https://gitee.com/profile/personal_access_tokens，勾选 projects）
-#   - GITEE_USERNAME : Gitee 用户名
+#   Gitee 用户名会自动从 Token 获取，无需手动设置
 
 name: Sync Repo to Gitee
 
@@ -23,19 +23,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - name: Validate tokens
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Validate tokens and resolve Gitee username
+        id: tokens
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
         run: |
           echo "🔍 验证 Gitee Token..."
-          GITEE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://gitee.com/api/v5/user?access_token=${GITEE_TOKEN}")
-          if [ "$GITEE_CODE" != "200" ]; then
-            echo "❌ Gitee Token 无效 (HTTP ${GITEE_CODE})，请检查 GITEE_TOKEN secret"
+          GITEE_USER=$(curl -s "https://gitee.com/api/v5/user?access_token=${GITEE_TOKEN}" | jq -r '.login')
+          if [ -z "$GITEE_USER" ] || [ "$GITEE_USER" = "null" ]; then
+            echo "❌ Gitee Token 无效，请检查 GITEE_TOKEN secret"
             exit 1
           fi
-          echo "✅ Gitee Token 有效 (用户: ${GITEE_USERNAME})"
+          echo "✅ Gitee Token 有效 (真实用户名: ${GITEE_USER})"
+          echo "gitee_username=${GITEE_USER}" >> $GITHUB_OUTPUT
 
       - name: Determine target repo
         id: target
@@ -59,7 +62,7 @@ jobs:
       - name: Ensure Gitee repo exists
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+          GITEE_USERNAME: ${{ steps.tokens.outputs.gitee_username }}
         run: |
           set +e
           REPO_NAME="${{ steps.target.outputs.name }}"
@@ -94,7 +97,7 @@ jobs:
       - name: Push to Gitee
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+          GITEE_USERNAME: ${{ steps.tokens.outputs.gitee_username }}
         run: |
           set +e
           REPO_NAME="${{ steps.target.outputs.name }}"
