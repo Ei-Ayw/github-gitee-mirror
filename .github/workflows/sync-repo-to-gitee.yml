@@ -1,0 +1,84 @@
+# GitHub → Gitee 单仓库增量同步
+# 当你 push 代码到任意分支时，只同步当前被 push 的这个仓库到 Gitee
+# 全量兜底同步由 sync-all-to-gitee.yml（每周定时）负责
+#
+# 配置 Secrets（在仓库 Settings → Secrets → Actions 中）：
+#   - GH_PAT        : GitHub PAT（https://github.com/settings/tokens，勾选 repo）—— 私有仓库 clone 需要
+#   - GITEE_TOKEN    : Gitee PAT（https://gitee.com/profile/personal_access_tokens，勾选 projects）
+#   - GITEE_USERNAME : Gitee 用户名
+
+name: Sync Repo to Gitee
+
+on:
+  push:
+    branches: ["*"]
+  workflow_dispatch:
+    inputs:
+      repo_name:
+        description: "手动指定要同步的仓库名（留空则同步当前仓库）"
+        required: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Determine target repo
+        id: target
+        env:
+          MANUAL_REPO: ${{ github.event.inputs.repo_name }}
+        run: |
+          # 手动触发可以指定任意仓库；push 触发同步当前仓库
+          if [ -n "$MANUAL_REPO" ]; then
+            REPO_NAME="$MANUAL_REPO"
+          else
+            REPO_NAME="${{ github.event.repository.name }}"
+          fi
+          echo "name=${REPO_NAME}" >> $GITHUB_OUTPUT
+          echo "🔄 目标仓库: ${REPO_NAME}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 全量检出，含所有分支和标签
+
+      - name: Ensure Gitee repo exists
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+        run: |
+          REPO_NAME="${{ steps.target.outputs.name }}"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://gitee.com/api/v5/repos/${GITEE_USERNAME}/${REPO_NAME}?access_token=${GITEE_TOKEN}")
+
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "📦 创建 Gitee 仓库..."
+            curl -s -X POST "https://gitee.com/api/v5/user/repos" \
+              -H "Content-Type: application/json" \
+              -d "{\"access_token\":\"${GITEE_TOKEN}\",\"name\":\"${REPO_NAME}\",\"private\":true,"\
+                "\"description\":\"Mirrored from ${{ github.event.repository.html_url }}\","\
+                "\"auto_init\":false}" > /dev/null 2>&1 || true
+            sleep 3
+          else
+            echo "✅ Gitee 仓库已存在"
+          fi
+
+      - name: Push to Gitee
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+        run: |
+          REPO_NAME="${{ steps.target.outputs.name }}"
+          GITEE_URL="https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_USERNAME}/${REPO_NAME}.git"
+
+          git remote add gitee "$GITEE_URL"
+
+          echo "⬆️ 推送到 Gitee..."
+          if git push --mirror gitee 2>&1; then
+            echo "✅ 镜像推送成功"
+          else
+            echo "⚠️ 回退到 --all + --tags..."
+            git push --all gitee
+            git push --tags gitee
+            echo "✅ 回退推送成功"
+          fi

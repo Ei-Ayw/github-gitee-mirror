@@ -1,0 +1,108 @@
+# GitHub → Gitee 全量兜底同步（低频）
+# 每周一次全量遍历所有仓库，确保 Gitee 上的镜像与 GitHub 完全一致
+# 日常增量同步由 sync-repo-to-gitee.yml（push 触发）负责
+#
+# 配置 Secrets（在仓库 Settings → Secrets → Actions 中）：
+#   - GH_PAT        : GitHub PAT（https://github.com/settings/tokens，勾选 repo）
+#   - GITEE_TOKEN    : Gitee PAT（https://gitee.com/profile/personal_access_tokens，勾选 projects）
+#   - GITEE_USERNAME : Gitee 用户名
+
+name: Weekly Full Sync to Gitee
+
+on:
+  schedule:
+    - cron: "3 2 * * 1"   # 每周一凌晨 02:03 UTC
+  workflow_dispatch:        # 随时手动触发全量同步
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Fetch all GitHub repos
+        id: repos
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          REPOS=$(curl -s -H "Authorization: token ${GH_PAT}" \
+            "https://api.github.com/user/repos?per_page=100&visibility=all" \
+            | jq -r '.[] | "\(.clone_url) \(.name) \(.private)"')
+
+          echo "📋 找到以下仓库："
+          echo "$REPOS" | while read line; do echo "  $line"; done
+
+          TOTAL=$(echo "$REPOS" | wc -l | tr -d ' ')
+          echo "total=${TOTAL}" >> $GITHUB_OUTPUT
+          echo "$REPOS" > repo_list.txt
+
+      - name: Sync each repo to Gitee
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+        run: |
+          SUCCESS=0
+          FAIL=0
+
+          while read CLONE_URL REPO_NAME IS_PRIVATE; do
+            echo "🔄 同步: ${REPO_NAME} (private=${IS_PRIVATE})"
+
+            # 私有仓库注入 token
+            if [ "$IS_PRIVATE" = "true" ]; then
+              AUTH_URL="${CLONE_URL/https:\/\//https:\/\/oauth2:${GH_PAT}@}"
+            else
+              AUTH_URL="${CLONE_URL}"
+            fi
+
+            # 确保 Gitee 仓库存在
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              "https://gitee.com/api/v5/repos/${GITEE_USERNAME}/${REPO_NAME}?access_token=${GITEE_TOKEN}")
+
+            if [ "$HTTP_CODE" = "404" ]; then
+              echo "  📦 创建 Gitee 仓库..."
+              curl -s -X POST "https://gitee.com/api/v5/user/repos" \
+                -H "Content-Type: application/json" \
+                -d "{\"access_token\":\"${GITEE_TOKEN}\",\"name\":\"${REPO_NAME}\",\"private\":true,\"description\":\"Mirrored from ${CLONE_URL}\","\
+                "\"auto_init\":false}" > /dev/null 2>&1 || true
+              sleep 3
+            fi
+
+            # Clone + Push
+            GITEE_URL="https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_USERNAME}/${REPO_NAME}.git"
+            TMP_DIR=$(mktemp -d)
+
+            if git clone --mirror "${AUTH_URL}" "$TMP_DIR/repo.git" 2>&1; then
+              cd "$TMP_DIR/repo.git"
+              if git push --mirror "${GITEE_URL}" 2>&1; then
+                echo "  ✅ ${REPO_NAME} 镜像推送成功"
+                SUCCESS=$((SUCCESS + 1))
+              else
+                echo "  ⚠️ 回退到 --all + --tags..."
+                if git push --all "${GITEE_URL}" 2>&1 && git push --tags "${GITEE_URL}" 2>&1; then
+                  echo "  ✅ ${REPO_NAME} 回退推送成功"
+                  SUCCESS=$((SUCCESS + 1))
+                else
+                  echo "  ❌ ${REPO_NAME} 推送失败"
+                  FAIL=$((FAIL + 1))
+                fi
+              fi
+              cd "$GITHUB_WORKSPACE"
+            else
+              echo "  ❌ ${REPO_NAME} 克隆失败"
+              FAIL=$((FAIL + 1))
+            fi
+
+            rm -rf "$TMP_DIR"
+            sleep 2
+
+          done < repo_list.txt
+
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 ✅ ${SUCCESS} / ❌ ${FAIL} / 总计 ${{ steps.repos.outputs.total }}"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f repo_list.txt
