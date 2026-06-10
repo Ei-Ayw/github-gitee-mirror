@@ -100,10 +100,12 @@ jobs:
 
             if [ "$HTTP_CODE" = "404" ]; then
               echo "  📦 创建 Gitee 仓库..."
-              CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/user/repos" \
-                -H "Content-Type: application/json" \
-                -d "{\"access_token\":\"${GITEE_TOKEN}\",\"name\":\"${REPO_NAME}\",\"private\":true,\"description\":\"Mirrored from ${CLONE_URL}\","\
-                "\"auto_init\":false}")
+              CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST \
+                "https://gitee.com/api/v5/user/repos?access_token=${GITEE_TOKEN}" \
+                -F "name=${REPO_NAME}" \
+                -F "private=true" \
+                -F "auto_init=false" \
+                -F "description=Mirrored from GitHub")
               CREATE_CODE=$(echo "$CREATE_RESP" | tail -1)
               CREATE_BODY=$(echo "$CREATE_RESP" | sed '$d')
               if [ "$CREATE_CODE" != "201" ]; then
