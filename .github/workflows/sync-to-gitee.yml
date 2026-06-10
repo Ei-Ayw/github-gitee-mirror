@@ -1,23 +1,26 @@
-# GitHub → Gitee 自动同步
-# 无需部署任何服务，直接在 GitHub Actions 中完成镜像同步
+# GitHub → Gitee 全量仓库自动同步
+# 自动遍历你 GitHub 账户下的所有仓库，逐个镜像同步到 Gitee
 #
 # 使用方法：
-#   1. 将此文件复制到你需要同步的 GitHub 仓库的 .github/workflows/ 目录
-#   2. 在仓库 Settings → Secrets and variables → Actions 中添加：
-#      - GITEE_TOKEN   : Gitee 个人访问令牌（https://gitee.com/profile/personal_access_tokens）
+#   1. 创建一个专门的"同步调度"仓库（如 github-gitee-sync），把这个 workflow 放进去
+#   2. 在该仓库 Settings → Secrets and variables → Actions 中添加：
+#      - GITHUB_TOKEN   : GitHub 个人访问令牌（https://github.com/settings/tokens，勾选 repo 权限）
+#      - GITEE_TOKEN    : Gitee 个人访问令牌（https://gitee.com/profile/personal_access_tokens，勾选 projects 权限）
 #      - GITEE_USERNAME : 你的 Gitee 用户名
-#   3. push 代码后自动触发同步，也可手动触发（workflow_dispatch）
+#   3. push 或手动触发即可同步全部仓库
+#
+# 注意：这个 workflow 放在"调度仓库"里，它会自动遍历你 GitHub 账户的所有仓库
+#       不需要给每个仓库单独配置 workflow
 
-name: Sync to Gitee
+name: Sync All Repos to Gitee
 
 on:
-  push:
-    branches: ["*"]
   schedule:
     - cron: "3 2 * * *"   # 每天凌晨 02:03 UTC 自动同步
   workflow_dispatch:        # 支持手动触发
 
 env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
   GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
 
@@ -26,51 +29,89 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      # 1. 全量检出仓库（含所有分支和标签）
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # 2. 确保目标 Gitee 仓库存在，不存在则自动创建
-      - name: Ensure Gitee repo exists
+      # 1. 获取 GitHub 账户下所有仓库列表
+      - name: Fetch all GitHub repos
+        id: repos
         run: |
-          REPO_NAME="${{ github.event.repository.name }}"
-          # 检查仓库是否存在
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://gitee.com/api/v5/repos/${GITEE_USERNAME}/${REPO_NAME}?access_token=${GITEE_TOKEN}")
+          REPOS=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/user/repos?per_page=100&visibility=all" \
+            | jq -r '.[] | .clone_url + " " + .name')
 
-          if [ "$HTTP_CODE" = "404" ]; then
-            echo "📦 Gitee 仓库不存在，正在创建..."
-            curl -s -X POST "https://gitee.com/api/v5/user/repos" \
-              -H "Content-Type: application/json" \
-              -d "{
-                \"access_token\": \"${GITEE_TOKEN}\",
-                \"name\": \"${REPO_NAME}\",
-                \"private\": true,
-                \"description\": \"Mirrored from ${{ github.event.repository.html_url }}\",
-                \"auto_init\": false
-              }" || true
-            echo "✅ 仓库创建完成"
-          else
-            echo "✅ Gitee 仓库已存在"
-          fi
+          echo "📋 找到以下仓库："
+          echo "$REPOS" | while read line; do echo "  $line"; done
 
-      # 3. 推送到 Gitee（先尝试 mirror，失败则回退到 all + tags）
-      - name: Push to Gitee
+          TOTAL=$(echo "$REPOS" | wc -l)
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+
+          # 写入文件供后续步骤使用
+          echo "$REPOS" > repo_list.txt
+
+      # 2. 逐个同步每个仓库到 Gitee
+      - name: Sync each repo to Gitee
         run: |
-          REPO_NAME="${{ github.event.repository.name }}"
-          GITEE_URL="https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_USERNAME}/${REPO_NAME}.git"
+          SUCCESS=0
+          FAIL=0
 
-          git remote add gitee "$GITEE_URL"
+          while read CLONE_URL REPO_NAME; do
+            echo "🔄 正在同步: ${REPO_NAME}"
 
-          # 先尝试完整镜像推送
-          echo "⬆️ 正在推送 (--mirror)..."
-          if git push --mirror gitee 2>&1; then
-            echo "✅ 镜像推送成功"
-          else
-            echo "⚠️ 镜像推送失败，回退到 --all + --tags..."
-            git push --all gitee
-            git push --tags gitee
-            echo "✅ 回退推送成功"
-          fi
+            # 2a. 确保目标 Gitee 仓库存在
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              "https://gitee.com/api/v5/repos/${GITEE_USERNAME}/${REPO_NAME}?access_token=${GITEE_TOKEN}")
+
+            if [ "$HTTP_CODE" = "404" ]; then
+              echo "  📦 Gitee 仓库不存在，正在创建..."
+              curl -s -X POST "https://gitee.com/api/v5/user/repos" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"access_token\": \"${GITEE_TOKEN}\",
+                  \"name\": \"${REPO_NAME}\",
+                  \"private\": true,
+                  \"description\": \"Mirrored from ${CLONE_URL}\",
+                  \"auto_init\": false
+                }" > /dev/null 2>&1 || true
+              sleep 3  # 等待仓库创建完成
+            fi
+
+            # 2b. Clone mirror + push mirror
+            GITEE_URL="https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_USERNAME}/${REPO_NAME}.git"
+            TMP_DIR=$(mktemp -d)
+
+            # Clone
+            if git clone --mirror "${CLONE_URL}" "$TMP_DIR/repo.git" 2>&1; then
+              cd "$TMP_DIR/repo.git"
+
+              # Push: 先 mirror，失败回退到 all + tags
+              if git push --mirror "${GITEE_URL}" 2>&1; then
+                echo "  ✅ ${REPO_NAME} 镜像推送成功"
+                SUCCESS=$((SUCCESS + 1))
+              else
+                echo "  ⚠️ 镜像推送被拒绝，回退到 --all + --tags..."
+                if git push --all "${GITEE_URL}" 2>&1 && git push --tags "${GITEE_URL}" 2>&1; then
+                  echo "  ✅ ${REPO_NAME} 回退推送成功"
+                  SUCCESS=$((SUCCESS + 1))
+                else
+                  echo "  ❌ ${REPO_NAME} 推送失败"
+                  FAIL=$((FAIL + 1))
+                fi
+              fi
+
+              cd -
+            else
+              echo "  ❌ ${REPO_NAME} 克隆失败"
+              FAIL=$((FAIL + 1))
+            fi
+
+            rm -rf "$TMP_DIR"
+            sleep 2  # 简单限流，避免 API 过快
+
+          done < repo_list.txt
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 同步完成: ✅ ${SUCCESS} 成功 / ❌ ${FAIL} 失败 / 总计 ${{ steps.repos.outputs.total }}"
+
+      # 3. 清理临时文件
+      - name: Cleanup
+        if: always()
+        run: rm -f repo_list.txt
